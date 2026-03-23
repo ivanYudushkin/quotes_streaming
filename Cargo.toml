@@ -1,0 +1,19 @@
+[package]
+name = "quote_server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+log = "0.4.29"
+rand = "0.8.5"
+colored = "3.*"
+
+[[bin]]
+name = "quote_user"
+path = "src/quote_user.rs"
+
+[[bin]]
+name = "market_simulator"
+path = "src/market_simulator.rs"
+
+
