@@ -68,7 +68,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "quote_server"
+name = "quotes_streaming"
 version = "0.1.0"
 dependencies = [
  "colored",

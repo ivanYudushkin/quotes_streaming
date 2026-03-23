@@ -1,6 +1,4 @@
-mod stock;
-
-use stock::StockQuote;
+use quotes_streaming::stock::StockQuote;
 use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::thread;

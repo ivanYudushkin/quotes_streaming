@@ -1,12 +1,8 @@
-mod broadcaster;
-mod quote_server;
-
-use quote_server::{handle_client, ClientEvent};
-use std::sync::{Arc};
+use quotes_streaming::quote_server::{handle_client, ClientEvent};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
-use std::time::{Duration};
-
+use std::time::Duration;
 use std::net::TcpListener;
 
 fn main() -> std::io::Result<()> {
