@@ -1,4 +1,4 @@
-use std::net::UdpSocket;
+use std::net::{SocketAddr, UdpSocket};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Mutex, Once, OnceLock};
 use std::io::Write;
@@ -41,7 +41,13 @@ fn start_market_loop_once() {
                     Err(_) => continue,
                 };
                 //Проходжимся по списку подписчиков и пытаемся отправить им данные в канал, которые получили с сокета, Если при отправке возникает ошибка, то считаем подписчика недействительным и удаляем его
-                let mut subs = subscribers().lock().unwrap();
+                let mut subs = match subscribers().lock() {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("Failed to get subscribers mutex: {e}");
+                        continue;
+                    }
+                };
                 subs.retain(|tx| tx.send(msg.clone()).is_ok());
 
             }
@@ -51,8 +57,14 @@ fn start_market_loop_once() {
 
 //Создание отдельного канала для пользователя. Добавление пользователя в глобальный список подписчиков. Возвращает Receiver для дальнейшей фильтрации тикеров
 fn subscribe_user() -> Receiver<String> {
-    let (tx,rx) = mpsc::channel::<String>();
-    subscribers().lock().unwrap().push(tx);
+
+    let (tx, rx) = mpsc::channel::<String>();
+
+    if let Ok(mut subs) = subscribers().lock() {
+        subs.push(tx);
+    } else {
+        eprintln!("Failed push to subscribers")
+    }
     rx
 }
 
@@ -76,6 +88,36 @@ pub fn send_tickers_to_stream(
             out.write_all(msg.as_bytes())?;
             out.write_all(b"\r\n")?;
             out.flush()?;
+        }
+    };
+
+    Ok(())
+
+}
+
+
+pub fn send_tickers_to_udp(
+    tickers: &str,
+    target_addr: SocketAddr
+) -> std::io::Result<()> {
+
+    //Запускает если еще не запущен
+    start_market_loop_once();
+
+    //Добавляет подписчика, получает Receiver для него
+    let rx = subscribe_user();
+    let target_tickers: Vec<&str> = tickers.split(',').map(|s| s.trim()).collect();
+
+    let socket = UdpSocket::bind("127.0.0.1:0")?;
+
+    //Обрабатывает сообщение из канала, парсит только нужные тикеры и выводит инфо в консоль
+    for msg in rx {
+        let ticker = msg.split('|').next().unwrap_or("");
+        if target_tickers.contains(&ticker) {
+            if let Err(e) = socket.send_to(msg.as_bytes(), target_addr) {
+                eprintln!("failed send msg to {target_addr}: {e}");
+                continue;
+            };
         }
     };
 

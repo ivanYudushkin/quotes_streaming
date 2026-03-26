@@ -24,7 +24,7 @@ fn set_random_quote(quote: &Arc<RwLock<StockQuote>>) {
     q.timestamp = timestamp_ms;
 }
 
-fn main() {
+fn main() -> std::io::Result<()>{
 
     let f = File::open("tickers.txt").unwrap();
     let reader = BufReader::new(f);
@@ -42,7 +42,14 @@ fn main() {
     }
 
     //Создаю UDP сокет для отправки данных о тикерах
-    let socket = UdpSocket::bind("127.0.0.1:8080").unwrap();
+    let socket = match UdpSocket::bind("127.0.0.1:8080") {
+        Ok(bind) => bind,
+        Err(e)  => {
+            eprintln!("bind failed: {e}");
+            return Err(e);
+        }
+    };
+    
     let socket = Arc::new(socket);
 
     println!("market sender on socket: {}", socket.local_addr().unwrap());
@@ -70,12 +77,16 @@ fn main() {
 
                     set_random_quote(&quote);
 
-                    {
-                        let qu = quote.read().unwrap();
-                        let msg = format!("{}", qu.to_string());
-                        // Отправляю сообщение по бумаге в UDP
+                    if let Ok(qu) = quote.try_read() {
+                        let msg = qu.to_string();
                         socket.send_to(msg.as_bytes(), "127.0.0.1:8081").unwrap();
                     }
+                    // {
+                    //     let qu = quote.read().unwrap();
+                    //     let msg = format!("{}", qu.to_string());
+                    //     // Отправляю сообщение по бумаге в UDP
+                    //     socket.send_to(msg.as_bytes(), "127.0.0.1:8081").unwrap();
+                    // }
 
                 }
             });
@@ -89,5 +100,7 @@ fn main() {
     for handle in handles {
         handle.join().unwrap(); // это будет ждать вечно, так как потоки бесконечные
     }
+
+    Ok(())
 
 }

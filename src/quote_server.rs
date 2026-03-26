@@ -3,6 +3,7 @@ use std::io::BufReader;
 use std::io::Write;
 use std::net::TcpStream;
 use std::time::Duration;
+use std::net::{SocketAddr};
 use crate::broadcaster;
 
 pub enum ClientEvent {
@@ -12,7 +13,14 @@ pub enum ClientEvent {
 
 pub fn handle_client(stream: TcpStream) -> std::io::Result<ClientEvent> {
     // клонируем stream: один экземпляр для чтения (обёрнут в BufReader), другой — для записи
-    let mut writer = stream.try_clone().expect("failed to clone stream");
+    let mut writer = match stream.try_clone() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Failed to clone stream: {e}");
+            return Err(e);
+        }
+    };
+    
     let mut reader = BufReader::new(stream);
 
     // send initial prompt
@@ -55,6 +63,38 @@ pub fn handle_client(stream: TcpStream) -> std::io::Result<ClientEvent> {
 
                         } else {
                             "ERROR: usage STREAM <tickers_list>\n".to_string()
+                        }
+                    }
+                    
+                    Some("UDP_STREAM") => {
+
+                        let target_addr_str = match parts.next() {
+                            Some(s) => s,
+                            None => return Ok(ClientEvent::Disconnected)
+                        };
+                        
+                        let target_addr: SocketAddr = match target_addr_str.parse() {
+                            Ok(addr) => addr,
+                            Err(e) => {
+                                eprintln!("Failed to parse address {target_addr_str} to SocketAddr: {e}");
+                                continue;
+                            }
+                        };
+
+                        let tickers = parts.next();
+
+                        if let Some(tickers) = tickers {
+
+                            let tickers = tickers.to_string();
+                            
+                            std::thread::spawn(move || {
+                                let _ = broadcaster::send_tickers_to_udp(&tickers, target_addr);
+                            });
+
+                            format!("OK: UDP stream started\r\nSocket address: {target_addr}\r\n").to_string()
+
+                        } else {
+                            "ERROR: usage UDP_STREAM <udp_addr> <tickers_list>\n".to_string()
                         }
                     }
 
