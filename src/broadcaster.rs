@@ -1,23 +1,34 @@
+use std::collections::HashMap;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Mutex, Once, OnceLock};
+use std::sync::{Mutex, Once, OnceLock, RwLock};
 use std::io::Write;
 use std::thread;
+use std::time::{Duration, Instant};
 
 //Инициализируем статик переменные. Нам нужен общий список подписчиков на рассылки, который должен сгенерироваться один раз и жить весь цикл выполнения программы
 static START_MARKET_LOOP: Once = Once::new();
 //Для каждого клиента свой канал. Изменение из разных потоков, поэтому мьютекс
 static SUBSCRIBERS: OnceLock<Mutex<Vec<Sender<String>>>> = OnceLock::new();
-
 //Получение списка подписчиков либо инициализация(если их нет)
 fn subscribers() -> &'static Mutex<Vec<Sender<String>>> {
     SUBSCRIBERS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
+static START_HEARTBEAT_LOOP: Once = Once::new();
+static LAST_PING: OnceLock<RwLock<HashMap<SocketAddr, Instant>>> = OnceLock::new();
+
+fn last_ping_map() -> &'static RwLock<HashMap<SocketAddr, Instant>> {
+    LAST_PING.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+
 //Функция, которая запускается только один раз, потому что работает на всех пользователей и не нужно ее отдельно запускать для каждого. Читает с сокета данные о котировках, которые генерируются в market_sender
 fn start_market_loop_once() {
     START_MARKET_LOOP.call_once(|| {
+
         thread::spawn(|| {
+            
             //Подключение к сокету
             let market_socket = match UdpSocket::bind("127.0.0.1:8081") {
                 Ok(socket) => socket,
@@ -55,6 +66,40 @@ fn start_market_loop_once() {
     });
 }
 
+//Принимает сообщения с heartbeat сокета и обновляет хэш мапу
+fn start_heartbeat_loop_once() {
+    START_HEARTBEAT_LOOP.call_once(|| {
+
+        thread::spawn(|| {
+            
+            //Подключение к сокету
+            let heartbeat_socket = match UdpSocket::bind("127.0.0.1:9000") {
+                Ok(socket) => socket,
+                Err(e) => {
+                    eprintln!("Failed to bind heartbeat socket: {e}");
+                    return;
+                }
+            };
+            
+
+            let mut buf = [0u8; 2048];
+
+            loop {
+
+                let (_, addr) = match heartbeat_socket.recv_from(&mut buf) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+
+                if let Ok(mut map) = last_ping_map().write() {
+                    map.insert(addr, Instant::now());
+                }
+
+            }
+        });
+    });
+}
+
 //Создание отдельного канала для пользователя. Добавление пользователя в глобальный список подписчиков. Возвращает Receiver для дальнейшей фильтрации тикеров
 fn subscribe_user() -> Receiver<String> {
 
@@ -76,6 +121,7 @@ pub fn send_tickers_to_stream(
 
     //Запускает если еще не запущен
     start_market_loop_once();
+    start_heartbeat_loop_once();
 
     //Добавляет подписчика, получает Receiver для него
     let rx = subscribe_user();
@@ -103,25 +149,50 @@ pub fn send_tickers_to_udp(
 
     //Запускает если еще не запущен
     start_market_loop_once();
+    start_heartbeat_loop_once();
 
     //Добавляет подписчика, получает Receiver для него
     let rx = subscribe_user();
     let target_tickers: Vec<&str> = tickers.split(',').map(|s| s.trim()).collect();
 
     let socket = UdpSocket::bind("127.0.0.1:0")?;
+    socket.set_read_timeout(Some(Duration::from_secs(5)))?;
 
+    println!("UDP Stream started for {target_addr}");
     //Обрабатывает сообщение из канала, парсит только нужные тикеры и выводит инфо в консоль
-    for msg in rx {
-        let ticker = msg.split('|').next().unwrap_or("");
-        if target_tickers.contains(&ticker) {
-            if let Err(e) = socket.send_to(msg.as_bytes(), target_addr) {
-                eprintln!("failed send msg to {target_addr}: {e}");
-                continue;
-            };
-        }
-    };
+    loop {
 
-    Ok(())
+        if let Ok(map) = last_ping_map().read() {
+            match map.get(&target_addr) {
+                Some(ping) => {
+                    if ping.elapsed() > Duration::from_secs(5) {
+                        println!("UDP Stream stopped for {target_addr} by timeout 5s");
+                        return Ok(());
+                    }
+                },
+                None => {
+                println!("0 heartbeat messages from {target_addr}. Instant stop");
+                    return Ok(());
+                }   
+            }
+        };
+
+        match rx.try_recv() {
+            Ok(msg) => {
+                let ticker = msg.split('|').next().unwrap_or("");
+                if target_tickers.contains(&ticker) {
+                    if let Err(e) = socket.send_to(msg.as_bytes(), target_addr) {
+                        eprintln!("failed send msg to {target_addr}: {e}");
+                        continue;
+                    };
+                }
+            },
+            Err(_) => continue
+        }
+
+
+    }
+
 
 }
 

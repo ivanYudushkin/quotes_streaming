@@ -43,7 +43,7 @@ fn main() -> std::io::Result<()> {
                     //Новое подключение
                     thread::spawn(move || {
                         match handle_client(stream) {
-                            Ok(ClientEvent::Disconnected) => println!("Client disconnected"),
+                            Ok(ClientEvent::Disconnected) => println!("TCP Client disconnected"),
                             Ok(ClientEvent::Exit) => println!("Client sent EXIT"),
                             Err(e) => eprintln!("Client handler error: {}", e),
                         }
