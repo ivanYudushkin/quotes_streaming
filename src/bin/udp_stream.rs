@@ -2,6 +2,7 @@ use std::io::Write;
 use std::net::{TcpStream, UdpSocket};
 use std::thread;
 use std::net::Shutdown;
+use std::time::Duration;
 
 fn main() -> std::io::Result<()> {
 
@@ -51,6 +52,7 @@ fn main() -> std::io::Result<()> {
     thread::spawn(move || {
         loop {
             socket.send_to("PING\n".as_bytes(), "127.0.0.1:9000").unwrap();
+            std::thread::sleep(Duration::from_secs(1))
         }
     });
 

@@ -95,7 +95,10 @@ fn start_heartbeat_loop_once() {
                     map.insert(addr, Instant::now());
                 }
 
+                std::thread::sleep(Duration::from_secs(1))
+
             }
+
         });
     });
 }
@@ -151,6 +154,10 @@ pub fn send_tickers_to_udp(
     start_market_loop_once();
     start_heartbeat_loop_once();
 
+    if let Ok(mut map) = last_ping_map().write() {
+        map.insert(target_addr, Instant::now());
+    }
+
     //Добавляет подписчика, получает Receiver для него
     let rx = subscribe_user();
     let target_tickers: Vec<&str> = tickers.split(',').map(|s| s.trim()).collect();
@@ -177,17 +184,15 @@ pub fn send_tickers_to_udp(
             }
         };
 
-        match rx.try_recv() {
-            Ok(msg) => {
-                let ticker = msg.split('|').next().unwrap_or("");
-                if target_tickers.contains(&ticker) {
-                    if let Err(e) = socket.send_to(msg.as_bytes(), target_addr) {
-                        eprintln!("failed send msg to {target_addr}: {e}");
-                        continue;
-                    };
-                }
-            },
-            Err(_) => continue
+        // match rx.try_recv() {
+        while let Ok(msg) = rx.try_recv() {
+            let ticker = msg.split('|').next().unwrap_or("");
+            if target_tickers.contains(&ticker) {
+                if let Err(e) = socket.send_to(msg.as_bytes(), target_addr) {
+                    eprintln!("failed send msg to {target_addr}: {e}");
+                    continue;
+                };
+            }
         }
 
 
