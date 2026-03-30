@@ -163,7 +163,6 @@ pub fn send_tickers_to_udp(
     let target_tickers: Vec<&str> = tickers.split(',').map(|s| s.trim()).collect();
 
     let socket = UdpSocket::bind("127.0.0.1:0")?;
-    socket.set_read_timeout(Some(Duration::from_secs(5)))?;
 
     println!("UDP Stream started for {target_addr}");
     //Обрабатывает сообщение из канала, парсит только нужные тикеры и выводит инфо в консоль
